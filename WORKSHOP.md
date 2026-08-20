@@ -307,6 +307,16 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 cloudflared tunnel --url http://127.0.0.1:8090
 ```
 
+> ⚠️ **กับดักที่เจอบ่อย**: `*.trycloudflare.com` มักตอบ DNS มาเป็น IPv6 ก่อน
+> ถ้าเครื่องไม่มี route IPv6 curl จะขึ้น `Failed to connect ... after 4 ms`
+> แก้ด้วยการบังคับ IPv4: `curl -4 ...`
+
+ปิดท่อเมื่อเลิกใช้ (URL จะตายทันที ตอบ HTTP 530):
+
+```bash
+docker compose --profile cf-quick down
+```
+
 **แบบ named** (โดเมนของตัวเอง): สร้าง tunnel ใน Cloudflare Zero Trust dashboard
 → ตั้ง public hostname ให้ชี้ไปที่ service `http://mcp-server:8000` → เอา token ใส่ `.env`
 
