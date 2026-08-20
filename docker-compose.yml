@@ -1,0 +1,67 @@
+name: test-chatgpt-local
+
+services:
+  # Private MCP server: exposes ./workspace as MCP tools over streamable HTTP.
+  # It is never published to the internet; only tunnel-client talks to it.
+  mcp-server:
+    build: ./mcp-server
+    image: local/workspace-mcp:1.0
+    container_name: workspace-mcp
+    restart: unless-stopped
+    user: "${PUID:-1001}:${PGID:-1001}"
+    environment:
+      WORKSPACE_DIR: /workspace
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+    volumes:
+      - ./workspace:/workspace
+    ports:
+      # Loopback-only, for local testing with curl. Remove to keep it internal.
+      - "127.0.0.1:${MCP_HOST_PORT:-8090}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # OpenAI Secure MCP Tunnel client: outbound-only to api.openai.com,
+  # forwards tunneled JSON-RPC to mcp-server.
+  tunnel-client:
+    image: ghcr.io/openai/tunnel-client:${TUNNEL_CLIENT_VERSION:-v0.0.12}
+    container_name: openai-tunnel-client
+    restart: unless-stopped
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    environment:
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY}
+      CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID}
+      MCP_SERVER_URL: http://mcp-server:8000/mcp
+      MCP_STARTUP_WAIT_TIMEOUT: 60s
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-struct-text}
+      # Health/metrics/admin UI on all container interfaces, published to host loopback only.
+      HEALTH_LISTEN_ADDR: ":8080"
+      ALLOW_REMOTE_UI: "true"
+    ports:
+      - "127.0.0.1:${TUNNEL_HEALTH_PORT:-8091}:8080"
+
+  # Smoke test without the local MCP server: `docker compose --profile stub up tunnel-stub`
+  # Uses the client's built-in demo MCP stub, so it only proves control-plane connectivity.
+  tunnel-stub:
+    profiles: ["stub"]
+    image: ghcr.io/openai/tunnel-client:${TUNNEL_CLIENT_VERSION:-v0.0.12}
+    container_name: openai-tunnel-stub
+    restart: "no"
+    command: ["--embedded-mcp-stub"]
+    environment:
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY}
+      CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID}
+      LOG_LEVEL: debug
+      HEALTH_LISTEN_ADDR: ":8080"
+      ALLOW_REMOTE_UI: "true"
