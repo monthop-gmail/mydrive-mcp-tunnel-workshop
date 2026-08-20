@@ -1,11 +1,19 @@
 name: test-chatgpt-local
 
+# สแตกเต็ม: MCP server + ท่อของ OpenAI (+ ทางเลือก: ท่อของ Cloudflare)
+#   docker compose up -d                                  → mcp-server + tunnel-client
+#   docker compose up -d mcp-server                        → MCP server ล้วน ๆ (ใช้กับ agent ตัวไหนก็ได้)
+#   docker compose --profile stub run --rm tunnel-stub     → เทสต์ key/tunnel id อย่างเดียว
+#   docker compose --profile cf-quick up cloudflared-quick → เปิด public URL ชั่วคราวผ่าน Cloudflare
+#   docker compose --profile cf-named up -d cloudflared    → ท่อ Cloudflare แบบมีชื่อโดเมนของตัวเอง
+
 services:
-  # Private MCP server: exposes ./workspace as MCP tools over streamable HTTP.
-  # It is never published to the internet; only tunnel-client talks to it.
+  # ── MCP server ────────────────────────────────────────────────────────────
+  # เสิร์ฟ ./workspace เป็น MCP tools ผ่าน streamable HTTP ที่ /mcp
+  # ไม่ผูกกับ OpenAI: Claude Code / Gemini CLI / Codex / Cursor / SDK ต่อตรงได้
   mcp-server:
     build: ./mcp-server
-    image: local/workspace-mcp:1.0
+    image: local/workspace-mcp:1.1
     container_name: workspace-mcp
     restart: unless-stopped
     user: "${PUID:-1001}:${PGID:-1001}"
@@ -13,12 +21,14 @@ services:
       WORKSPACE_DIR: /workspace
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
+      # ว่าง = ไม่มี auth (ใช้ได้เฉพาะตอน bind loopback), มีค่า = ต้องส่ง Bearer token
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     volumes:
       - ./workspace:/workspace
     ports:
-      # Loopback-only, for local testing with curl. Remove to keep it internal.
-      - "127.0.0.1:${MCP_HOST_PORT:-8090}:8000"
+      - "${MCP_BIND_ADDR:-127.0.0.1}:${MCP_HOST_PORT:-8090}:8000"
     healthcheck:
+      # /healthz ไม่ต้องใช้ token เสมอ
       test:
         - CMD
         - python
@@ -29,8 +39,8 @@ services:
       retries: 5
       start_period: 10s
 
-  # OpenAI Secure MCP Tunnel client: outbound-only to api.openai.com,
-  # forwards tunneled JSON-RPC to mcp-server.
+  # ── ท่อของ OpenAI ─────────────────────────────────────────────────────────
+  # outbound-only ไป api.openai.com แล้ว poll งานจาก ChatGPT / Codex / Responses API
   tunnel-client:
     image: ghcr.io/openai/tunnel-client:${TUNNEL_CLIENT_VERSION:-v0.0.12}
     container_name: openai-tunnel-client
@@ -42,17 +52,19 @@ services:
       CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY}
       CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID}
       MCP_SERVER_URL: http://mcp-server:8000/mcp
+      # ใส่ Bearer ให้อัตโนมัติเมื่อ MCP_AUTH_TOKEN ถูกตั้งไว้ใน .env
+      MCP_EXTRA_HEADERS: "${MCP_AUTH_TOKEN:+Authorization: Bearer ${MCP_AUTH_TOKEN}}"
       MCP_STARTUP_WAIT_TIMEOUT: 60s
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-struct-text}
-      # Health/metrics/admin UI on all container interfaces, published to host loopback only.
+      # health/metrics/admin UI ฟังทุก interface ใน container แต่ publish แค่ loopback ของ host
       HEALTH_LISTEN_ADDR: ":8080"
       ALLOW_REMOTE_UI: "true"
     ports:
       - "127.0.0.1:${TUNNEL_HEALTH_PORT:-8091}:8080"
 
-  # Smoke test without the local MCP server: `docker compose --profile stub up tunnel-stub`
-  # Uses the client's built-in demo MCP stub, so it only proves control-plane connectivity.
+  # ── smoke test เฉพาะ control plane ────────────────────────────────────────
+  # ใช้ demo MCP stub ในตัว client: พิสูจน์แค่ว่า key + tunnel id + egress ถูกต้อง
   tunnel-stub:
     profiles: ["stub"]
     image: ghcr.io/openai/tunnel-client:${TUNNEL_CLIENT_VERSION:-v0.0.12}
@@ -63,5 +75,31 @@ services:
       CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY}
       CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID}
       LOG_LEVEL: debug
+      LOG_FORMAT: struct-text
       HEALTH_LISTEN_ADDR: ":8080"
       ALLOW_REMOTE_UI: "true"
+
+  # ── ท่อของ Cloudflare (เทียบกับของ OpenAI) ────────────────────────────────
+  # แบบ quick: ได้ URL สุ่ม *.trycloudflare.com ไม่ต้องมีบัญชี — เปิดสาธารณะจริง
+  # ⚠️ เปิดเมื่อ MCP_AUTH_TOKEN ถูกตั้งแล้วเท่านั้น
+  cloudflared-quick:
+    profiles: ["cf-quick"]
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-latest}
+    container_name: cloudflared-quick
+    restart: "no"
+    command: ["tunnel", "--no-autoupdate", "--url", "http://mcp-server:8000"]
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+
+  # แบบ named: ใช้โดเมนของตัวเอง, route ตั้งใน Cloudflare Zero Trust dashboard
+  # ให้ public hostname ชี้มาที่ service http://mcp-server:8000
+  cloudflared:
+    profiles: ["cf-named"]
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-latest}
+    container_name: cloudflared-named
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
+    depends_on:
+      mcp-server:
+        condition: service_healthy

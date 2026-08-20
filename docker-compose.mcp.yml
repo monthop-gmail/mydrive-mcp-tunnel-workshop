@@ -1,0 +1,16 @@
+name: workspace-mcp
+
+# MCP server ล้วน ๆ ไม่มีท่อของใครทั้งนั้น — สำหรับใช้กับ agent ที่รันในเครื่อง
+# (Claude Code, Gemini CLI, Codex CLI, Cursor, VS Code, โค้ดที่เขียนเอง)
+#
+#   docker compose -f docker-compose.mcp.yml up -d --build
+#   docker compose -f docker-compose.mcp.yml down
+#
+# หมายเหตุ: อย่ารันพร้อมกับสแตกหลัก เพราะใช้ host port เดียวกัน
+
+services:
+  mcp-server:
+    extends:
+      file: docker-compose.yml
+      service: mcp-server
+    container_name: workspace-mcp-standalone

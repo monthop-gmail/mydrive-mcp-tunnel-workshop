@@ -1,18 +1,27 @@
 """Minimal MCP server exposing a sandboxed ./workspace folder over streamable HTTP.
 
-Used as the private MCP server behind the OpenAI Secure MCP Tunnel.
-Every path argument is resolved and checked to stay inside WORKSPACE_DIR.
+Transport-agnostic: any MCP client can use it (ChatGPT via the OpenAI Secure MCP
+Tunnel, Claude Code, Gemini CLI, Codex, Cursor, your own SDK code, ...).
+
+Two guardrails:
+  * every path argument is resolved and must stay inside WORKSPACE_DIR
+  * when MCP_AUTH_TOKEN is set, every request except /healthz needs
+    `Authorization: Bearer <token>`
 """
 
+import hmac
 import os
 from pathlib import Path
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 
 WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", "/workspace")).resolve()
 MAX_READ_BYTES = int(os.environ.get("MAX_READ_BYTES", "200000"))
+AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+PUBLIC_PATHS = ("/healthz",)
 
 mcp = FastMCP(
     "workspace",
@@ -87,7 +96,7 @@ def search_text(query: str, path: str = ".", max_results: int = 50) -> str:
 @mcp.tool()
 def ping() -> str:
     """Smoke-test tool: confirms the tunnel reaches this MCP server."""
-    return f"pong from workspace-mcp; workspace={WORKSPACE}"
+    return f"pong from workspace-mcp; workspace={WORKSPACE}; auth={'on' if AUTH_TOKEN else 'off'}"
 
 
 @mcp.custom_route("/healthz", methods=["GET"])
@@ -95,6 +104,53 @@ async def healthz(_request: Request) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
+class BearerAuthMiddleware:
+    """ASGI middleware: require a bearer token on every path except PUBLIC_PATHS."""
+
+    def __init__(self, app, token: str):
+        self.app = app
+        self.token = token
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("path", "") in PUBLIC_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        supplied = headers.get("authorization", "")
+        prefix = "Bearer "
+        ok = supplied.startswith(prefix) and hmac.compare_digest(
+            supplied[len(prefix):].strip(), self.token
+        )
+        if not ok:
+            response = JSONResponse(
+                {"error": "unauthorized", "detail": "missing or invalid bearer token"},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer realm="workspace-mcp"'},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+def build_app():
+    app = mcp.streamable_http_app()
+    if AUTH_TOKEN:
+        return BearerAuthMiddleware(app, AUTH_TOKEN)
+    return app
+
+
 if __name__ == "__main__":
     WORKSPACE.mkdir(parents=True, exist_ok=True)
-    mcp.run(transport="streamable-http")
+    print(
+        f"workspace-mcp: workspace={WORKSPACE} "
+        f"auth={'bearer' if AUTH_TOKEN else 'DISABLED (no MCP_AUTH_TOKEN)'}",
+        flush=True,
+    )
+    uvicorn.run(
+        build_app(),
+        host=os.environ.get("MCP_HOST", "0.0.0.0"),
+        port=int(os.environ.get("MCP_PORT", "8000")),
+        log_level=os.environ.get("UVICORN_LOG_LEVEL", "info"),
+    )
