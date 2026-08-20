@@ -45,10 +45,15 @@ cp .env.example .env
 docker --version && docker compose version
 ```
 
+> ⚡ **ทางลัดสำหรับคนที่ตามไม่ทัน**: `./setup.sh` ทำ Lab 0–1 ให้ทั้งหมดในคำสั่งเดียว
+> (ตรวจ docker → `.env` → หาพอร์ตว่าง → build → up → smoke test)
+> แต่ถ้าอยากเข้าใจจริง ๆ แนะนำให้พิมพ์เองตาม Lab 1 — สคริปต์ไว้ใช้ตอนเวลาไม่พอ
+
 สำรวจโครงสร้าง:
 
 | ไฟล์ | ทำอะไร |
 | --- | --- |
+| `setup.sh` | ติดตั้ง/รัน/เช็ค/ปิด ให้จบในคำสั่งเดียว |
 | `mcp-server/server.py` | MCP server ~150 บรรทัด (tools + bearer auth) |
 | `docker-compose.yml` | สแตกเต็ม: mcp-server + tunnel-client + profile เสริม |
 | `docker-compose.mcp.yml` | MCP server ล้วน ๆ ไม่มีท่อ |
@@ -361,6 +366,7 @@ curl -s http://127.0.0.1:8091/metrics | grep commands_poll
 ## เก็บกวาด
 
 ```bash
+./setup.sh --down          # หรือทำมือ:
 docker compose down
 docker compose -f docker-compose.mcp.yml down
 docker compose --profile cf-quick down

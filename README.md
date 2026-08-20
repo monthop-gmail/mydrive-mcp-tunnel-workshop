@@ -26,6 +26,7 @@ Cursor, n8n** หรือโค้ดที่เขียนเองก็ไ
 | `docker-compose.mcp.yml` | MCP server ล้วน ๆ ไม่มีท่อ (ใช้กับ agent ในเครื่อง) |
 | `mcp-server/server.py` | MCP server ตัวอย่าง ~150 บรรทัด (FastMCP + bearer auth) |
 | `workspace/` | โฟลเดอร์ที่ AI เข้ามาอ่าน/เขียน (mount ที่ `/workspace`) |
+| `setup.sh` | ติดตั้ง/รัน/เช็ค/ปิด ให้จบในคำสั่งเดียว |
 | `.env` | ค่าลับทั้งหมด (ไม่ถูก commit) — คัดลอกจาก `.env.example` |
 
 Tools ที่มีให้: `list_files`, `read_file`, `write_file`, `search_text`, `ping`
@@ -33,7 +34,27 @@ Tools ที่มีให้: `list_files`, `read_file`, `write_file`, `search
 
 ---
 
-## เริ่มเร็ว 3 แบบ
+## เร็วที่สุด: `./setup.sh`
+
+```bash
+git clone https://github.com/monthop-gmail/secure-mcp-tunnel-workshop.git
+cd secure-mcp-tunnel-workshop
+./setup.sh
+```
+
+สคริปต์จะตรวจ docker → สร้าง `.env` → หาพอร์ตว่าง → ถามว่าจะรันโหมดไหน → สร้าง token →
+build/up → ยิง smoke test → พิมพ์คำสั่งต่อ agent ให้พร้อมคัดลอก
+
+```bash
+./setup.sh --mcp-only --auth -y   # MCP server + auth ไม่ต้องถาม (ไม่ต้องมี key ของ OpenAI)
+./setup.sh --full                 # สแตกเต็ม (ถาม tunnel id + API key ถ้ายังไม่มีใน .env)
+./setup.sh --status               # สถานะ + smoke test
+./setup.sh --down                 # ปิดทุกสแตก
+```
+
+ถ้าอยากเข้าใจทีละขั้นว่าแต่ละคำสั่งทำอะไร ให้ทำมือตาม 3 แบบข้างล่างนี้แทน
+
+## ทำมือ — 3 แบบ
 
 ### A. MCP server อย่างเดียว (ไม่ต้องมี key อะไรเลย)
 
