@@ -1,4 +1,4 @@
-# secure-mcp-tunnel-workshop
+# mydrive-mcp-tunnel-workshop
 
 ต่อ **MCP server ในเครื่อง** เข้ากับ **ChatGPT / Codex** ด้วย
 [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
@@ -37,8 +37,8 @@ Tools ที่มีให้: `list_files`, `read_file`, `write_file`, `search
 ## เร็วที่สุด: `./setup.sh`
 
 ```bash
-git clone https://github.com/monthop-gmail/secure-mcp-tunnel-workshop.git
-cd secure-mcp-tunnel-workshop
+git clone https://github.com/monthop-gmail/mydrive-mcp-tunnel-workshop.git
+cd mydrive-mcp-tunnel-workshop
 ./setup.sh
 ```
 

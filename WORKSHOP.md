@@ -39,8 +39,8 @@
 ## Lab 0 — เตรียมเครื่อง (5 นาที)
 
 ```bash
-git clone https://github.com/monthop-gmail/secure-mcp-tunnel-workshop.git
-cd secure-mcp-tunnel-workshop
+git clone https://github.com/monthop-gmail/mydrive-mcp-tunnel-workshop.git
+cd mydrive-mcp-tunnel-workshop
 cp .env.example .env
 docker --version && docker compose version
 ```
